@@ -161,7 +161,10 @@ fn main() {
     let alpha_health = sum_health(alpha_ptr);
     let alpha_armor = sum_armor(alpha_ptr);
 
-    println!("Squad Alpha: health={}, armor={}", alpha_health, alpha_armor);
+    println!(
+        "Squad Alpha: health={}, armor={}",
+        alpha_health, alpha_armor
+    );
     assert_eq!(alpha_health, 200); // 100 + 50 + 50
     assert_eq!(alpha_armor, 90); // 50 + 20 + 20
 
