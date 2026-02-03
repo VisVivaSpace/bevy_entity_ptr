@@ -3,3 +3,4 @@
 /.claude
 CLAUDE.md
 Cargo.lock
+.DS_Store
