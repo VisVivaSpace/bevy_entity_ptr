@@ -5,11 +5,12 @@
 //! - Handle optional relationships (targets, equipped items)
 //! - Navigate complex entity graphs
 //! - Use follow_opt for optional references
+//! - Use `WorldExt` to create `EntityPtr` without unsafe blocks
 //!
 //! Run with: `cargo run --example entity_graph`
 
 use bevy_ecs::prelude::*;
-use bevy_entity_ptr::{EntityHandle, EntityPtr, WorldRef};
+use bevy_entity_ptr::{EntityHandle, EntityPtr, WorldExt};
 
 // Character components
 
@@ -86,20 +87,17 @@ fn target_info(character: EntityPtr) -> Option<(&'static str, i32)> {
 }
 
 // Find all characters targeting a specific entity
-fn find_attackers<'a>(world: &'a World, target_entity: Entity) -> Vec<EntityPtr> {
-    // SAFETY: world reference is valid for this scope
-    let w = unsafe { WorldRef::new(world) };
-
+fn find_attackers(world: &World, target_entity: Entity) -> Vec<EntityPtr> {
     world
         .iter_entities()
         .filter_map(|entity_ref| {
             let entity = entity_ref.id();
-            let ptr = w.entity(entity);
+            let ptr = world.entity_ptr(entity);
 
             // Check if this entity has a Target component pointing to our target
             ptr.get::<Target>().and_then(|t| {
                 t.0.filter(|h| h.entity() == target_entity)
-                    .map(|_| w.entity(entity))
+                    .map(|_| world.entity_ptr(entity))
             })
         })
         .collect()
@@ -165,12 +163,9 @@ fn main() {
         ))
         .id();
 
-    // SAFETY: world outlives all EntityPtr usage
-    let w = unsafe { WorldRef::new(&world) };
-
     // Demonstrate entity graph queries
-    let hero_ptr = w.entity(hero);
-    let goblin_ptr = w.entity(goblin);
+    let hero_ptr = world.entity_ptr(hero);
+    let goblin_ptr = world.entity_ptr(goblin);
 
     // 1. Calculate inventory weight
     let weight = total_weight(hero_ptr);
@@ -222,9 +217,8 @@ fn main() {
         .entity_mut(hero)
         .insert(Target(Some(EntityHandle::new(goblin))));
 
-    // Re-query with fresh WorldRef
-    let w = unsafe { WorldRef::new(&world) };
-    let hero_ptr = w.entity(hero);
+    // Re-query with fresh EntityPtr
+    let hero_ptr = world.entity_ptr(hero);
 
     let hero_target = target_info(hero_ptr);
     println!("\nAfter targeting goblin:");

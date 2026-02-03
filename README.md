@@ -6,17 +6,21 @@ Ergonomic smart-pointer-like access to Bevy ECS entities with immutable-only sem
 
 This crate provides two complementary approaches for accessing entity data in Bevy:
 
-| Type | Size | Use Case |
-|------|------|----------|
-| `EntityHandle` | 8 bytes | Store in components, explicit `&World` parameter |
-| `BoundEntity<'w>` | 16 bytes | Fluent access within a scope |
-| `WorldRef` | 8 bytes | System entry point for `EntityPtr` approach |
-| `EntityPtr` | 16 bytes | Ergonomic traversal without `&World` parameter |
+| Type | Safety | Ergonomics | Use When |
+|------|--------|------------|----------|
+| `EntityHandle` | ✅ Fully safe | Explicit world param | Store in components |
+| `BoundEntity<'w>` | ✅ Fully safe | Scoped lifetime | Simple access, compiler-checked |
+| `EntityPtr` | ✅ Safe API* | No lifetime params | Tree/graph traversal, recursion |
+
+*One internal unsafe hidden by `WorldExt` extension trait
+
+**Recommendation:** Start with `BoundEntity<'w>`. Use `EntityPtr` when lifetime
+annotations become cumbersome for complex traversal.
 
 ## Design Principles
 
 - **Immutable only** - No `get_mut` variants (functional programming style)
-- **Single unsafe boundary** - Only `WorldRef::new()` is unsafe
+- **Safe by default** - `WorldExt` trait hides the internal unsafe, users never write `unsafe` blocks
 - **Graceful stale handling** - Despawned entities return `None`, not undefined behavior
 - **Zero-cost where possible** - `#[repr(transparent)]`, `#[inline]`, `const fn`
 
@@ -26,7 +30,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-bevy_entity_ptr = "0.1"
+bevy_entity_ptr = "0.2"
 ```
 
 ## Quick Start
@@ -57,14 +61,14 @@ fn find_parent_name(entity: Entity, world: &World) -> Option<String> {
 }
 ```
 
-### Ergonomic Approach: WorldRef + EntityPtr
+### Ergonomic Approach: WorldExt + EntityPtr
 
 Use this when you want fluent traversal without passing `&World` everywhere.
-There is **one unsafe point**: `WorldRef::new()`.
+The `WorldExt` extension trait hides the internal unsafe, so you never need to write `unsafe` blocks.
 
 ```rust
 use bevy_ecs::prelude::*;
-use bevy_entity_ptr::{WorldRef, EntityPtr, EntityHandle};
+use bevy_entity_ptr::{WorldExt, EntityPtr, EntityHandle};
 
 #[derive(Component)]
 struct Parent(EntityHandle);
@@ -100,12 +104,9 @@ fn find_root(node: EntityPtr) -> EntityPtr {
 }
 
 fn health_system(world: &World) {
-    // SAFETY: WorldRef is dropped before system returns
-    let w = unsafe { WorldRef::new(world) };
-
-    // Use EntityPtr for ergonomic traversal
+    // No unsafe needed! WorldExt provides ergonomic access
     for entity in world.iter_entities() {
-        let ptr = w.entity(entity.id());
+        let ptr = world.entity_ptr(entity.id());
         let total = sum_tree_health(ptr);
         println!("Subtree health: {}", total);
     }
@@ -118,7 +119,7 @@ Store handles in components, use smart pointers for traversal:
 
 ```rust
 use bevy_ecs::prelude::*;
-use bevy_entity_ptr::{EntityHandle, WorldRef, EntityPtr};
+use bevy_entity_ptr::{EntityHandle, WorldExt, EntityPtr};
 
 // EntityHandle is Send + Sync, safe to store in components
 #[derive(Component)]
@@ -141,6 +142,12 @@ fn total_inventory_weight(player: EntityPtr) -> f32 {
         })
         .unwrap_or(0.0)
 }
+
+fn inventory_system(world: &World, player_entity: Entity) {
+    let player = world.entity_ptr(player_entity);
+    let weight = total_inventory_weight(player);
+    println!("Total inventory weight: {}", weight);
+}
 ```
 
 ## Navigation Traits (Optional)
@@ -149,12 +156,12 @@ Enable the `nav-traits` feature for parent/child navigation helpers:
 
 ```toml
 [dependencies]
-bevy_entity_ptr = { version = "0.1", features = ["nav-traits"] }
+bevy_entity_ptr = { version = "0.2", features = ["nav-traits"] }
 ```
 
 ```rust
 use bevy_ecs::prelude::*;
-use bevy_entity_ptr::{EntityHandle, WorldRef, HasParent, HasChildren};
+use bevy_entity_ptr::{WorldExt, HasParent, HasChildren};
 
 #[derive(Component)]
 struct ParentRef(Option<Entity>);
@@ -175,9 +182,7 @@ impl HasChildren for ChildRefs {
 }
 
 fn navigate_tree(world: &World, entity: Entity) {
-    // SAFETY: WorldRef scoped to this function
-    let w = unsafe { WorldRef::new(world) };
-    let ptr = w.entity(entity);
+    let ptr = world.entity_ptr(entity);
 
     // Navigate to parent
     if let Some(parent) = ptr.nav().parent::<ParentRef>() {
@@ -199,13 +204,39 @@ fn navigate_tree(world: &World, entity: Entity) {
 | `WorldRef` | No | No | System-scoped only |
 | `EntityPtr` | No | No | System-scoped only |
 
+## Using EntityPtr in Collections
+
+`EntityPtr` implements `Eq` and `Hash`, allowing use in `HashSet` and `HashMap`:
+
+```rust
+use std::collections::HashSet;
+use bevy_ecs::prelude::*;
+use bevy_entity_ptr::WorldExt;
+
+fn find_unique_targets(world: &World, entities: &[Entity]) -> HashSet<Entity> {
+    let mut seen = HashSet::new();
+
+    for &entity in entities {
+        let ptr = world.entity_ptr(entity);
+        if seen.insert(ptr) {
+            // First time seeing this entity
+        }
+    }
+
+    // Convert back to Entity for storage
+    seen.into_iter().map(|ptr| ptr.entity()).collect()
+}
+```
+
+**Note:** `EntityPtr` comparison uses entity ID only, assuming same-world context (the typical usage pattern).
+
 ## Multi-Threaded Usage Example
 
-Multiple read-only systems can use `bevy_entity_ptr` concurrently. Each system creates its own `WorldRef` at entry, and Bevy's scheduler runs them in parallel when all systems only read:
+Multiple read-only systems can use `bevy_entity_ptr` concurrently. Bevy's scheduler runs them in parallel when all systems only read:
 
 ```rust
 use bevy_ecs::prelude::*;
-use bevy_entity_ptr::{EntityHandle, EntityPtr, WorldRef};
+use bevy_entity_ptr::{EntityHandle, EntityPtr, WorldExt};
 
 #[derive(Component)]
 struct Health(i32);
@@ -239,22 +270,16 @@ fn sum_armor(node: EntityPtr) -> i32 {
 
 /// System A: Computes total health across hierarchies
 fn compute_health_system(world: &World, query: Query<Entity, With<RootMarker>>) {
-    // SAFETY: System has &World access, WorldRef dropped before system returns
-    let world_ref = unsafe { WorldRef::new(world) };
-
     for entity in &query {
-        let total = sum_health(world_ref.entity(entity));
+        let total = sum_health(world.entity_ptr(entity));
         println!("Total health: {}", total);
     }
 }
 
 /// System B: Runs concurrently with System A
 fn compute_armor_system(world: &World, query: Query<Entity, With<RootMarker>>) {
-    // SAFETY: System has &World access, WorldRef dropped before system returns
-    let world_ref = unsafe { WorldRef::new(world) };
-
     for entity in &query {
-        let total = sum_armor(world_ref.entity(entity));
+        let total = sum_armor(world.entity_ptr(entity));
         println!("Total armor: {}", total);
     }
 }
@@ -267,8 +292,8 @@ fn setup_app(app: &mut App) {
 
 **Why this is safe:**
 
-- Each system creates its **own** `WorldRef` instance at entry
-- `WorldRef` and `EntityPtr` are **NOT** `Send`/`Sync` - they cannot be shared between threads
+- `WorldExt::entity_ptr()` hides the internal unsafe - you never write `unsafe` blocks
+- `EntityPtr` is **NOT** `Send`/`Sync` - it cannot escape to other threads
 - Bevy's scheduler detects that both systems only have `&World` access and runs them in parallel
 - All operations through `EntityPtr` are read-only by design
 
@@ -304,13 +329,14 @@ fn stale_handling_example(world: &mut World) {
 
 ## Safety
 
-The only unsafe code is `WorldRef::new()`. The caller must ensure:
+**For most users:** The `WorldExt` extension trait (`world.entity_ptr(entity)`) hides all unsafe code. You never need to write `unsafe` blocks.
+
+**For advanced users:** If you need direct access to `WorldRef::new()`, the caller must ensure:
 
 1. The `World` outlives all `EntityPtr` instances created from the `WorldRef`
 2. The `World` is NOT mutated while any `EntityPtr` exists
 
 In Bevy systems, this is naturally satisfied: systems with `&World` access cannot mutate.
-Create `WorldRef` at system entry, use it for reads, and let it drop before the system returns.
 
 ## What This Crate Does NOT Support (By Design)
 

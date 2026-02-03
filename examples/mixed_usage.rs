@@ -3,14 +3,14 @@
 //! This example demonstrates:
 //! - Storing EntityHandle in components (Send + Sync)
 //! - Using BoundEntity for explicit world parameter style
-//! - Using EntityPtr for ergonomic traversal
+//! - Using EntityPtr for ergonomic traversal (via `WorldExt`)
 //! - Converting between the two approaches
 //! - Handling stale references gracefully
 //!
 //! Run with: `cargo run --example mixed_usage`
 
 use bevy_ecs::prelude::*;
-use bevy_entity_ptr::{BoundEntity, EntityHandle, EntityPtr, WorldRef};
+use bevy_entity_ptr::{BoundEntity, EntityHandle, EntityPtr, WorldExt};
 
 // Components
 
@@ -135,9 +135,8 @@ fn main() {
     // === EntityPtr approach ===
     println!("\n--- EntityPtr Approach (ergonomic) ---");
 
-    // SAFETY: world outlives EntityPtr usage
-    let w = unsafe { WorldRef::new(&world) };
-    let ptr = w.from_handle(a_handle); // Convert handle to ptr
+    // No unsafe needed! WorldExt provides ergonomic access
+    let ptr = world.entity_ptr(a_handle.entity()); // Convert handle to ptr
 
     let length = count_chain_length_ptr(ptr);
     println!("Chain length from 'a': {}", length);
@@ -170,8 +169,7 @@ fn main() {
         .id();
 
     // Calculate total team health using EntityPtr
-    let w = unsafe { WorldRef::new(&world) };
-    let leader_ptr = w.entity(leader);
+    let leader_ptr = world.entity_ptr(leader);
     let total = team_health(leader_ptr);
     println!("Total team health: {}", total);
     println!("  Expected: 150 + 100 + 80 + 120 = 450");
@@ -217,8 +215,7 @@ fn main() {
     let leader_name = bound.get::<Name>().unwrap().0;
 
     // Switch to EntityPtr for another part
-    let w = unsafe { WorldRef::new(&world) };
-    let ptr = w.from_handle(leader_handle);
+    let ptr = world.entity_ptr(leader_handle.entity());
     let total_health = team_health(ptr);
 
     println!(

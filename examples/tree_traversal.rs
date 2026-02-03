@@ -5,11 +5,12 @@
 //! - Recursively traverse trees to sum values
 //! - Find the root of a tree by following parent links
 //! - Compute tree depth
+//! - Use `WorldExt` to create `EntityPtr` without unsafe blocks
 //!
 //! Run with: `cargo run --example tree_traversal`
 
 use bevy_ecs::prelude::*;
-use bevy_entity_ptr::{EntityHandle, EntityPtr, WorldRef};
+use bevy_entity_ptr::{EntityHandle, EntityPtr, WorldExt};
 
 // Components for our tree structure
 
@@ -110,11 +111,9 @@ fn main() {
     world.entity_mut(a).insert(Parent(EntityHandle::new(root)));
     world.entity_mut(b).insert(Parent(EntityHandle::new(root)));
 
-    // SAFETY: world outlives all EntityPtr usage in this scope
-    let w = unsafe { WorldRef::new(&world) };
-
+    // No unsafe needed! WorldExt provides ergonomic access
     // Demonstrate tree operations
-    let root_ptr = w.entity(root);
+    let root_ptr = world.entity_ptr(root);
 
     // 1. Sum all values
     let total = sum_tree(root_ptr);
@@ -123,13 +122,13 @@ fn main() {
     assert_eq!(total, 27);
 
     // 2. Find root from any node
-    let d_ptr = w.entity(d);
+    let d_ptr = world.entity_ptr(d);
     let found_root = find_root(d_ptr);
     let root_name = found_root.get::<Name>().unwrap().0;
     println!("\nFinding root from node 'd': {}", root_name);
     assert_eq!(root_name, "root");
 
-    let b_ptr = w.entity(b);
+    let b_ptr = world.entity_ptr(b);
     let found_root = find_root(b_ptr);
     let root_name = found_root.get::<Name>().unwrap().0;
     println!("Finding root from node 'b': {}", root_name);
@@ -141,7 +140,7 @@ fn main() {
     println!("  Expected: 3 (root->a, a->c, c->d = 3 edges)");
     assert_eq!(depth, 3);
 
-    let a_ptr = w.entity(a);
+    let a_ptr = world.entity_ptr(a);
     let a_depth = tree_depth(a_ptr);
     println!("Subtree depth from 'a': {}", a_depth);
     assert_eq!(a_depth, 2);

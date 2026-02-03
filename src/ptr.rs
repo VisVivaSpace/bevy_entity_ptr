@@ -253,6 +253,28 @@ impl std::fmt::Debug for EntityPtr {
     }
 }
 
+impl PartialEq for EntityPtr {
+    /// Compares by entity ID only.
+    ///
+    /// This assumes both `EntityPtr`s reference the same world, which is
+    /// the typical usage pattern within a single system.
+    fn eq(&self, other: &Self) -> bool {
+        self.entity == other.entity
+    }
+}
+
+impl Eq for EntityPtr {}
+
+impl std::hash::Hash for EntityPtr {
+    /// Hashes the entity ID only.
+    ///
+    /// This enables use in `HashSet` and as `HashMap` keys within
+    /// a single-world context (the typical usage pattern).
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.entity.hash(state);
+    }
+}
+
 // Explicitly NOT implementing Send or Sync - EntityPtr must stay on creating thread
 
 /// Navigation wrapper for `EntityPtr`, providing parent/children traversal.

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-02-03
+
+### Added
+- `WorldExt` extension trait providing `entity_ptr()` and `bind_entity()` methods on `World`
+- `PartialEq`, `Eq`, and `Hash` implementations for `EntityPtr` (compares entity field only)
+- "Choosing Between Types" documentation section with safety/ergonomics guidance
+
+### Changed
+- Users no longer need to write `unsafe` blocks to create `EntityPtr` - use `world.entity_ptr(entity)` instead
+
 ## [0.1.0] - 2026-01-26
 
 ### Added

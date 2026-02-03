@@ -14,14 +14,18 @@
 //!     └── WorldRef::entity() → EntityPtr (smart pointer, 'static world)
 //! ```
 //!
-//! ## Choosing an Approach
+//! ## Choosing Between Types
 //!
-//! | Type | Size | When to Use |
-//! |------|------|-------------|
-//! | `EntityHandle` | 8 bytes | Store in components, pass between systems |
-//! | `BoundEntity<'w>` | 16 bytes | Fluent access within a scope with explicit world |
-//! | `WorldRef` | 8 bytes | System entry point for `EntityPtr` approach |
-//! | `EntityPtr` | 16 bytes | Ergonomic traversal without world param |
+//! | Type | Safety | Ergonomics | Use When |
+//! |------|--------|------------|----------|
+//! | `EntityHandle` | ✅ Fully safe | Explicit world param | Store in components |
+//! | `BoundEntity<'w>` | ✅ Fully safe | Scoped lifetime | Simple access, compiler-checked |
+//! | `EntityPtr` | ✅ Safe API* | No lifetime params | Tree/graph traversal, recursion |
+//!
+//! *One internal unsafe hidden by `WorldExt` extension trait
+//!
+//! **Recommendation:** Start with `BoundEntity<'w>`. Use `EntityPtr` when lifetime
+//! annotations become cumbersome for complex traversal.
 //!
 //! ## Safe Approach: EntityHandle + BoundEntity
 //!
@@ -49,14 +53,14 @@
 //! }
 //! ```
 //!
-//! ## Ergonomic Approach: WorldRef + EntityPtr
+//! ## Ergonomic Approach: WorldExt + EntityPtr
 //!
 //! Use this when you want fluent traversal without passing `&World` everywhere.
-//! There is **one unsafe point**: `WorldRef::new()`.
+//! The `WorldExt` trait hides the internal unsafe, providing a clean API.
 //!
 //! ```
 //! use bevy_ecs::prelude::*;
-//! use bevy_entity_ptr::{WorldRef, EntityPtr, EntityHandle};
+//! use bevy_entity_ptr::{WorldExt, EntityHandle};
 //!
 //! #[derive(Component)]
 //! struct Target(EntityHandle);
@@ -65,12 +69,9 @@
 //! struct Name(&'static str);
 //!
 //! fn traverse_system(world: &World) {
-//!     // SAFETY: WorldRef is dropped before system returns
-//!     let w = unsafe { WorldRef::new(world) };
-//!
-//!     // Now traverse without passing &World everywhere
+//!     // No unsafe needed! WorldExt provides ergonomic access
 //!     for entity in world.iter_entities() {
-//!         let ptr = w.entity(entity.id());
+//!         let ptr = world.entity_ptr(entity.id());
 //!
 //!         // Follow references fluently
 //!         if let Some(target) = ptr.follow::<Target, _>(|t| t.0) {
@@ -115,6 +116,63 @@ pub use ptr::{EntityPtr, EntityPtrNav, EntityPtrNavMany, WorldRef};
 // Navigation traits - feature-gated
 #[cfg(feature = "nav-traits")]
 pub use nav::{HasChildren, HasParent};
+
+use bevy_ecs::entity::Entity;
+use bevy_ecs::world::World;
+
+/// Extension trait for `World` providing ergonomic entity access methods.
+///
+/// This trait adds convenience methods to `World` that hide the internal
+/// unsafe boundary, making entity access more ergonomic.
+///
+/// # Example
+/// ```
+/// use bevy_ecs::prelude::*;
+/// use bevy_entity_ptr::WorldExt;
+///
+/// #[derive(Component)]
+/// struct Health(i32);
+///
+/// fn my_system(world: &World, entity: Entity) {
+///     // No unsafe needed!
+///     let ptr = world.entity_ptr(entity);
+///     if let Some(health) = ptr.get::<Health>() {
+///         println!("Health: {}", health.0);
+///     }
+/// }
+/// ```
+pub trait WorldExt {
+    /// Creates a `BoundEntity` for scoped access with explicit lifetime.
+    ///
+    /// This is the safest approach with compiler-checked lifetimes.
+    /// Use when you want explicit lifetime tracking.
+    fn bind_entity(&self, entity: Entity) -> BoundEntity<'_>;
+
+    /// Creates an `EntityPtr` for ergonomic traversal.
+    ///
+    /// This hides the internal unsafe, providing a clean API for
+    /// complex entity graph traversal. The `EntityPtr` is `!Send`,
+    /// preventing escape to other threads.
+    ///
+    /// # Safety Guarantee
+    /// Within a Bevy system, `&World` outlives the system scope.
+    /// Since `EntityPtr` is `!Send`, it cannot escape the system.
+    fn entity_ptr(&self, entity: Entity) -> EntityPtr;
+}
+
+impl WorldExt for World {
+    #[inline]
+    fn bind_entity(&self, entity: Entity) -> BoundEntity<'_> {
+        EntityHandle::new(entity).bind(self)
+    }
+
+    #[inline]
+    fn entity_ptr(&self, entity: Entity) -> EntityPtr {
+        // SAFETY: Within a Bevy system, &World outlives the system scope.
+        // EntityPtr is !Send, preventing escape to other threads.
+        unsafe { WorldRef::new(self) }.entity(entity)
+    }
+}
 
 #[cfg(test)]
 mod integration_tests {
@@ -777,6 +835,53 @@ mod integration_tests {
         assert!(result.is_some());
         assert_eq!(result.unwrap().get::<Name>().unwrap().0, "e4");
         assert_eq!(result.unwrap().get::<Health>().unwrap().0, 44);
+    }
+
+    // =========================================================================
+    // WorldExt Extension Trait Tests
+    // =========================================================================
+
+    /// Test WorldExt::entity_ptr - no unsafe needed!
+    #[test]
+    fn world_ext_entity_ptr() {
+        let mut world = World::new();
+        let entity = world.spawn(Name("test")).id();
+
+        // Extension trait usage - no unsafe!
+        let ptr = world.entity_ptr(entity);
+        assert_eq!(ptr.get::<Name>().unwrap().0, "test");
+    }
+
+    /// Test WorldExt::bind_entity - convenience method.
+    #[test]
+    fn world_ext_bind_entity() {
+        let mut world = World::new();
+        let entity = world.spawn(Name("test")).id();
+
+        let bound = world.bind_entity(entity);
+        assert_eq!(bound.get::<Name>().unwrap().0, "test");
+    }
+
+    /// Test EntityPtr Eq and Hash implementations.
+    #[test]
+    fn entity_ptr_eq_hash() {
+        let mut world = World::new();
+        let e1 = world.spawn(()).id();
+        let e2 = world.spawn(()).id();
+
+        let ptr1 = world.entity_ptr(e1);
+        let ptr1_copy = world.entity_ptr(e1);
+        let ptr2 = world.entity_ptr(e2);
+
+        // Test equality
+        assert_eq!(ptr1, ptr1_copy);
+        assert_ne!(ptr1, ptr2);
+
+        // Test works in HashSet
+        let mut set = std::collections::HashSet::new();
+        set.insert(ptr1);
+        assert!(set.contains(&ptr1_copy));
+        assert!(!set.contains(&ptr2));
     }
 }
 

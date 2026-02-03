@@ -3,25 +3,26 @@
 //! This example shows how to:
 //! - Create multiple read-only systems that use EntityPtr
 //! - Understand why concurrent reads are safe with this crate
-//! - Use the pattern of creating WorldRef at system entry
+//! - Use the `WorldExt` trait for ergonomic EntityPtr creation
 //!
 //! Run with: `cargo run --example concurrent_systems`
 //!
 //! # Thread Safety Explanation
 //!
-//! Each system creates its own `WorldRef` and `EntityPtr` instances. These types
-//! are intentionally NOT Send/Sync, meaning they cannot be shared across threads.
-//! However, Bevy's scheduler can run multiple read-only systems in parallel because:
+//! Each system creates its own `EntityPtr` instances using `world.entity_ptr()`.
+//! These types are intentionally NOT Send/Sync, meaning they cannot be shared
+//! across threads. However, Bevy's scheduler can run multiple read-only systems
+//! in parallel because:
 //!
 //! 1. Each system has its own `&World` reference (immutable borrow)
-//! 2. Each system creates independent `WorldRef` instances from that reference
+//! 2. Each system creates independent `EntityPtr` instances from that reference
 //! 3. All operations through `EntityPtr` are read-only
 //!
-//! This is the intended usage pattern: create `WorldRef` at system entry,
+//! This is the intended usage pattern: use `world.entity_ptr()` to get pointers,
 //! traverse entities within the system, and let everything drop before returning.
 
 use bevy_ecs::prelude::*;
-use bevy_entity_ptr::{EntityHandle, EntityPtr, WorldRef};
+use bevy_entity_ptr::{EntityHandle, EntityPtr, WorldExt};
 
 // Components for our hierarchy
 
@@ -68,14 +69,11 @@ fn sum_armor(node: EntityPtr) -> i32 {
 ///
 /// This system can run concurrently with other read-only systems because:
 /// - It only reads from the World (no mutations)
-/// - Its WorldRef/EntityPtr instances are local to this system
+/// - Its EntityPtr instances are local to this system
 /// - Bevy's scheduler detects the `&World` parameter and allows parallel execution
 fn compute_health_system(world: &World, query: Query<(Entity, &Name), With<RootMarker>>) {
-    // SAFETY: System has &World access, WorldRef dropped before system returns
-    let world_ref = unsafe { WorldRef::new(world) };
-
     for (entity, name) in &query {
-        let root_ptr = world_ref.entity(entity);
+        let root_ptr = world.entity_ptr(entity);
         let total_health = sum_health(root_ptr);
         println!("[Health System] {} total health: {}", name.0, total_health);
     }
@@ -87,11 +85,8 @@ fn compute_health_system(world: &World, query: Query<(Entity, &Name), With<RootM
 /// only perform read operations. In a real Bevy app, the scheduler would
 /// automatically parallelize these systems.
 fn compute_armor_system(world: &World, query: Query<(Entity, &Name), With<RootMarker>>) {
-    // SAFETY: System has &World access, WorldRef dropped before system returns
-    let world_ref = unsafe { WorldRef::new(world) };
-
     for (entity, name) in &query {
-        let root_ptr = world_ref.entity(entity);
+        let root_ptr = world.entity_ptr(entity);
         let total_armor = sum_armor(root_ptr);
         println!("[Armor System] {} total armor: {}", name.0, total_armor);
     }
@@ -155,8 +150,7 @@ fn main() {
     // Verify the computed values
     println!("\n--- Verification ---");
 
-    let w = unsafe { WorldRef::new(&world) };
-    let alpha_ptr = w.entity(alpha);
+    let alpha_ptr = world.entity_ptr(alpha);
 
     let alpha_health = sum_health(alpha_ptr);
     let alpha_armor = sum_armor(alpha_ptr);
@@ -169,7 +163,7 @@ fn main() {
     assert_eq!(alpha_armor, 90); // 50 + 20 + 20
 
     println!("\nAll assertions passed!");
-    println!("\nKey takeaway: Each system creates its own WorldRef at entry.");
-    println!("WorldRef and EntityPtr are NOT shared between systems - each");
-    println!("system has independent instances that are safe for concurrent reads.");
+    println!("\nKey takeaway: Use world.entity_ptr() in each system.");
+    println!("EntityPtr is NOT shared between systems - each system has");
+    println!("independent instances that are safe for concurrent reads.");
 }
