@@ -345,6 +345,18 @@ In Bevy systems, this is naturally satisfied: systems with `&World` access canno
 - **Component insertion/removal** - Use Bevy's native APIs
 - **Cross-frame storage of `EntityPtr`** - Use `EntityHandle` or raw `Entity` for storage
 
+## Bevy Compatibility
+
+| `bevy_entity_ptr` | Bevy |
+|--------------------|------|
+| 0.3                | 0.16 |
+| 0.2                | 0.15 |
+| 0.1                | 0.15 |
+
+## Development
+
+This crate is co-developed with [Claude Code](https://claude.ai/code).
+
 ## License
 
-MIT OR Apache-2.0
+MIT

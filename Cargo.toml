@@ -1,9 +1,12 @@
 [package]
 name = "bevy_entity_ptr"
-version = "0.2.0"
-edition = "2021"
-rust-version = "1.81"
+version = "0.3.0"
+edition = "2024"
+rust-version = "1.85"
+authors = ["Nathan Strange <info@visviva.space>"]
 repository = "https://github.com/VisVivaSpace/bevy_entity_ptr.git"
+homepage = "https://github.com/VisVivaSpace/bevy_entity_ptr"
+documentation = "https://docs.rs/bevy_entity_ptr"
 description = "Ergonomic smart-pointer-like access to Bevy entities (immutable only)"
 license = "MIT"
 readme = "README.md"
@@ -15,10 +18,14 @@ exclude = [
     "bevy_entity_ptr_plan.md",
     "CLAUDE.md",
     ".claude/",
+    "tasks/",
 ]
 
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
-bevy_ecs = "0.15"
+bevy_ecs = "0.16"
 
 [features]
 default = []

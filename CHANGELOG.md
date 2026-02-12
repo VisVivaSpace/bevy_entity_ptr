@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-02-11
+
+### Changed
+- Updated to Bevy 0.16 compatibility
+- Updated to Rust edition 2024 (`rust-version = "1.85"`)
+- Added `authors`, `homepage`, `documentation` fields to Cargo.toml
+- Added `[package.metadata.docs.rs]` section
+- Fixed README license line to match LICENSE file (MIT)
+- Added Bevy compatibility table to README
+- Added `llm-context.md` for LLM integration guidance
+
 ## [0.2.0] - 2026-02-03
 
 ### Added

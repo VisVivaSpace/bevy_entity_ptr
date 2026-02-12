@@ -46,7 +46,7 @@ impl WorldRef {
     pub unsafe fn new(world: &World) -> Self {
         // SAFETY: Caller guarantees the World outlives all EntityPtrs
         Self {
-            world: std::mem::transmute::<&World, &'static World>(world),
+            world: unsafe { std::mem::transmute::<&World, &'static World>(world) },
         }
     }
 
