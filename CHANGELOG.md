@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-02-11
+
+### Changed
+- Updated to Bevy 0.18 compatibility
+- No API changes required — all production and test code compatible as-is
+
 ## [0.4.0] - 2026-02-11
 
 ### Changed

@@ -30,7 +30,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-bevy_entity_ptr = "0.4"
+bevy_entity_ptr = "0.5"
 ```
 
 ## Quick Start
@@ -156,7 +156,7 @@ Enable the `nav-traits` feature for parent/child navigation helpers:
 
 ```toml
 [dependencies]
-bevy_entity_ptr = { version = "0.4", features = ["nav-traits"] }
+bevy_entity_ptr = { version = "0.5", features = ["nav-traits"] }
 ```
 
 ```rust
@@ -349,6 +349,7 @@ In Bevy systems, this is naturally satisfied: systems with `&World` access canno
 
 | `bevy_entity_ptr` | Bevy |
 |--------------------|------|
+| 0.5                | 0.18 |
 | 0.4                | 0.17 |
 | 0.3                | 0.16 |
 | 0.2                | 0.15 |

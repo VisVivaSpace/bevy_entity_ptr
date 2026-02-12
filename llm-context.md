@@ -18,7 +18,7 @@ Do **not** use this crate for mutations — it is read-only by design.
 Add to `Cargo.toml`:
 ```toml
 [dependencies]
-bevy_entity_ptr = "0.4"
+bevy_entity_ptr = "0.5"
 ```
 
 ### Core Types
