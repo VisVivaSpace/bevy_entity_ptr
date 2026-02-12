@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-02-11
+
+### Changed
+- Updated to Bevy 0.17 compatibility
+- Replaced deprecated `iter_entities()` with query-based iteration in examples and docs
+- Updated `Entity::from_raw()` to `Entity::from_raw_u32()` in tests (Bevy 0.17 API change)
+
 ## [0.3.0] - 2026-02-11
 
 ### Changed

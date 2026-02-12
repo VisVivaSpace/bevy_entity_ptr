@@ -44,8 +44,9 @@ impl WorldRef {
     /// - Typically this means the `WorldRef` is created at system entry and discarded at system exit
     #[inline]
     pub unsafe fn new(world: &World) -> Self {
-        // SAFETY: Caller guarantees the World outlives all EntityPtrs
         Self {
+            // SAFETY: Caller guarantees the World outlives all EntityPtrs
+            // and is not mutated while any EntityPtr exists.
             world: unsafe { std::mem::transmute::<&World, &'static World>(world) },
         }
     }
@@ -351,7 +352,7 @@ mod tests {
     fn worldref_entity_opt() {
         let mut world = World::new();
         let entity = world.spawn(Name("exists")).id();
-        let fake = Entity::from_raw(9999);
+        let fake = Entity::from_raw_u32(9999).unwrap();
 
         // SAFETY: world outlives the WorldRef usage in this test
         let world_ref = unsafe { WorldRef::new(&world) };

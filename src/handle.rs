@@ -234,7 +234,7 @@ mod tests {
 
     #[test]
     fn handle_roundtrip() {
-        let entity = Entity::from_raw(42);
+        let entity = Entity::from_raw_u32(42).unwrap();
         let handle = EntityHandle::new(entity);
         assert_eq!(handle.entity(), entity);
 

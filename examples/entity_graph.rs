@@ -86,18 +86,19 @@ fn target_info(character: EntityPtr) -> Option<(&'static str, i32)> {
         })
 }
 
-// Find all characters targeting a specific entity
-fn find_attackers(world: &World, target_entity: Entity) -> Vec<EntityPtr> {
-    world
-        .iter_entities()
-        .filter_map(|entity_ref| {
-            let entity = entity_ref.id();
+// Find all characters targeting a specific entity.
+// Note: In a real Bevy system you'd use a Query<Entity, With<Target>> instead of a
+// candidates slice. We use a slice here because this example runs in main(), not a system.
+fn find_attackers(world: &World, candidates: &[Entity], target_entity: Entity) -> Vec<EntityPtr> {
+    candidates
+        .iter()
+        .filter_map(|&entity| {
             let ptr = world.entity_ptr(entity);
 
             // Check if this entity has a Target component pointing to our target
             ptr.get::<Target>().and_then(|t| {
                 t.0.filter(|h| h.entity() == target_entity)
-                    .map(|_| world.entity_ptr(entity))
+                    .map(|_| ptr)
             })
         })
         .collect()
@@ -155,7 +156,7 @@ fn main() {
         .id();
 
     // Create another enemy also targeting the hero
-    let _orc = world
+    let orc = world
         .spawn((
             Name("Orc"),
             Health(50),
@@ -201,7 +202,8 @@ fn main() {
     assert_eq!(goblin_target, Some(("Hero", 100)));
 
     // 5. Find all entities targeting the hero
-    let attackers = find_attackers(&world, hero);
+    let characters = [hero, goblin, orc];
+    let attackers = find_attackers(&world, &characters, hero);
     let attacker_names: Vec<_> = attackers
         .iter()
         .filter_map(|p| p.get::<Name>())

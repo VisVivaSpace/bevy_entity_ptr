@@ -30,7 +30,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-bevy_entity_ptr = "0.2"
+bevy_entity_ptr = "0.4"
 ```
 
 ## Quick Start
@@ -103,10 +103,10 @@ fn find_root(node: EntityPtr) -> EntityPtr {
     }
 }
 
-fn health_system(world: &World) {
+fn health_system(world: &World, query: Query<Entity, With<TreeChildren>>) {
     // No unsafe needed! WorldExt provides ergonomic access
-    for entity in world.iter_entities() {
-        let ptr = world.entity_ptr(entity.id());
+    for entity in &query {
+        let ptr = world.entity_ptr(entity);
         let total = sum_tree_health(ptr);
         println!("Subtree health: {}", total);
     }
@@ -156,7 +156,7 @@ Enable the `nav-traits` feature for parent/child navigation helpers:
 
 ```toml
 [dependencies]
-bevy_entity_ptr = { version = "0.2", features = ["nav-traits"] }
+bevy_entity_ptr = { version = "0.4", features = ["nav-traits"] }
 ```
 
 ```rust
@@ -349,6 +349,7 @@ In Bevy systems, this is naturally satisfied: systems with `&World` access canno
 
 | `bevy_entity_ptr` | Bevy |
 |--------------------|------|
+| 0.4                | 0.17 |
 | 0.3                | 0.16 |
 | 0.2                | 0.15 |
 | 0.1                | 0.15 |

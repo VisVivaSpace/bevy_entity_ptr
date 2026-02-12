@@ -68,10 +68,10 @@
 //! #[derive(Component)]
 //! struct Name(&'static str);
 //!
-//! fn traverse_system(world: &World) {
+//! fn traverse_system(world: &World, query: Query<Entity, With<Target>>) {
 //!     // No unsafe needed! WorldExt provides ergonomic access
-//!     for entity in world.iter_entities() {
-//!         let ptr = world.entity_ptr(entity.id());
+//!     for entity in &query {
+//!         let ptr = world.entity_ptr(entity);
 //!
 //!         // Follow references fluently
 //!         if let Some(target) = ptr.follow::<Target, _>(|t| t.0) {
