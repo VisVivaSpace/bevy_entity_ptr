@@ -96,10 +96,8 @@ fn find_attackers(world: &World, candidates: &[Entity], target_entity: Entity) -
             let ptr = world.entity_ptr(entity);
 
             // Check if this entity has a Target component pointing to our target
-            ptr.get::<Target>().and_then(|t| {
-                t.0.filter(|h| h.entity() == target_entity)
-                    .map(|_| ptr)
-            })
+            ptr.get::<Target>()
+                .and_then(|t| t.0.filter(|h| h.entity() == target_entity).map(|_| ptr))
         })
         .collect()
 }

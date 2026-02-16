@@ -3,26 +3,29 @@
 //! This module provides traits for components that define entity relationships.
 //! Feature-gated behind `nav-traits`.
 
-use bevy_ecs::entity::Entity;
+use crate::handle::EntityHandle;
 
 /// Trait for components that reference a parent entity.
 ///
 /// Implement this on your component type to enable `.nav().parent()` navigation.
 ///
 /// # Example
-/// ```ignore
+/// ```no_run
+/// use bevy_ecs::prelude::*;
+/// use bevy_entity_ptr::{EntityHandle, HasParent};
+///
 /// #[derive(Component)]
-/// struct Parent(Entity);
+/// struct Parent(EntityHandle);
 ///
 /// impl HasParent for Parent {
-///     fn parent_entity(&self) -> Option<Entity> {
+///     fn parent_handle(&self) -> Option<EntityHandle> {
 ///         Some(self.0)
 ///     }
 /// }
 /// ```
 pub trait HasParent {
-    /// Returns the parent entity, if one exists.
-    fn parent_entity(&self) -> Option<Entity>;
+    /// Returns a handle to the parent entity, if one exists.
+    fn parent_handle(&self) -> Option<EntityHandle>;
 }
 
 /// Trait for components that reference child entities.
@@ -30,19 +33,22 @@ pub trait HasParent {
 /// Implement this on your component type to enable `.nav_many().children()` navigation.
 ///
 /// # Example
-/// ```ignore
+/// ```no_run
+/// use bevy_ecs::prelude::*;
+/// use bevy_entity_ptr::{EntityHandle, HasChildren};
+///
 /// #[derive(Component)]
-/// struct Children(Vec<Entity>);
+/// struct Children(Vec<EntityHandle>);
 ///
 /// impl HasChildren for Children {
-///     fn children_entities(&self) -> &[Entity] {
+///     fn children_handles(&self) -> &[EntityHandle] {
 ///         &self.0
 ///     }
 /// }
 /// ```
 pub trait HasChildren {
-    /// Returns a slice of child entities.
-    fn children_entities(&self) -> &[Entity];
+    /// Returns a slice of handles to child entities.
+    fn children_handles(&self) -> &[EntityHandle];
 }
 
 // Extension implementations for BoundEntity navigation
@@ -56,25 +62,25 @@ impl<'w> BoundEntityNav<'w> {
     #[inline]
     pub fn parent<T: bevy_ecs::component::Component + HasParent>(self) -> Option<BoundEntity<'w>> {
         self.0.get::<T>().and_then(|c| {
-            c.parent_entity()
-                .map(|e| BoundEntity::new(e, self.0.world()))
+            c.parent_handle()
+                .map(|h| BoundEntity::new(h.entity(), self.0.world()))
         })
     }
 
     /// Navigates to child entities using a component that implements `HasChildren`.
     ///
-    /// Returns a Vec of `BoundEntity` for each child. Returns empty Vec if the component is missing.
+    /// Returns an iterator of `BoundEntity` for each child. Returns an empty
+    /// iterator if the component is missing.
     #[inline]
-    pub fn children<T: bevy_ecs::component::Component + HasChildren>(self) -> Vec<BoundEntity<'w>> {
-        self.0
-            .get::<T>()
-            .map(|c| {
-                c.children_entities()
-                    .iter()
-                    .map(|&e| BoundEntity::new(e, self.0.world()))
-                    .collect()
-            })
-            .unwrap_or_default()
+    pub fn children<T: bevy_ecs::component::Component + HasChildren>(
+        self,
+    ) -> impl Iterator<Item = BoundEntity<'w>> + 'w {
+        self.0.get::<T>().into_iter().flat_map(move |c| {
+            c.children_handles()
+                .iter()
+                .copied()
+                .map(move |h| BoundEntity::new(h.entity(), self.0.world()))
+        })
     }
 }
 
@@ -88,34 +94,34 @@ impl EntityPtrNav {
     /// Returns `None` if this entity doesn't have the component or has no parent.
     #[inline]
     pub fn parent<T: bevy_ecs::component::Component + HasParent>(self) -> Option<EntityPtr> {
-        self.0
-            .get::<T>()
-            .and_then(|c| c.parent_entity().map(|e| EntityPtr::new(e, self.0.world())))
+        self.0.get::<T>().and_then(|c| {
+            c.parent_handle()
+                .map(|h| EntityPtr::new(h.entity(), self.0.world()))
+        })
     }
 }
 
 impl EntityPtrNavMany {
     /// Navigates to child entities using a component that implements `HasChildren`.
     ///
-    /// Returns a Vec of `EntityPtr` for each child. Returns empty Vec if the component is missing.
+    /// Returns an iterator of `EntityPtr` for each child. Returns an empty
+    /// iterator if the component is missing.
     #[inline]
-    pub fn children<T: bevy_ecs::component::Component + HasChildren>(self) -> Vec<EntityPtr> {
-        self.0
-            .get::<T>()
-            .map(|c| {
-                c.children_entities()
-                    .iter()
-                    .map(|&e| EntityPtr::new(e, self.0.world()))
-                    .collect()
-            })
-            .unwrap_or_default()
+    pub fn children<T: bevy_ecs::component::Component + HasChildren>(
+        self,
+    ) -> impl Iterator<Item = EntityPtr> {
+        self.0.get::<T>().into_iter().flat_map(move |c| {
+            c.children_handles()
+                .iter()
+                .copied()
+                .map(move |h| EntityPtr::new(h.entity(), self.0.world()))
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::handle::EntityHandle;
     use crate::ptr::WorldRef;
     use bevy_ecs::component::Component;
     use bevy_ecs::world::World;
@@ -124,19 +130,19 @@ mod tests {
     struct Name(&'static str);
 
     #[derive(Component)]
-    struct ParentRef(Option<Entity>);
+    struct ParentRef(Option<EntityHandle>);
 
     impl HasParent for ParentRef {
-        fn parent_entity(&self) -> Option<Entity> {
+        fn parent_handle(&self) -> Option<EntityHandle> {
             self.0
         }
     }
 
     #[derive(Component)]
-    struct ChildRefs(Vec<Entity>);
+    struct ChildRefs(Vec<EntityHandle>);
 
     impl HasChildren for ChildRefs {
-        fn children_entities(&self) -> &[Entity] {
+        fn children_handles(&self) -> &[EntityHandle] {
             &self.0
         }
     }
@@ -145,7 +151,9 @@ mod tests {
     fn bound_entity_nav_parent() {
         let mut world = World::new();
         let parent = world.spawn(Name("parent")).id();
-        let child = world.spawn((Name("child"), ParentRef(Some(parent)))).id();
+        let child = world
+            .spawn((Name("child"), ParentRef(Some(EntityHandle::new(parent)))))
+            .id();
 
         let bound = EntityHandle::new(child).bind(&world);
         let parent_bound = bound.nav().parent::<ParentRef>().unwrap();
@@ -168,11 +176,14 @@ mod tests {
         let child1 = world.spawn(Name("child1")).id();
         let child2 = world.spawn(Name("child2")).id();
         let parent = world
-            .spawn((Name("parent"), ChildRefs(vec![child1, child2])))
+            .spawn((
+                Name("parent"),
+                ChildRefs(vec![EntityHandle::new(child1), EntityHandle::new(child2)]),
+            ))
             .id();
 
         let bound = EntityHandle::new(parent).bind(&world);
-        let children = bound.nav().children::<ChildRefs>();
+        let children: Vec<_> = bound.nav().children::<ChildRefs>().collect();
 
         assert_eq!(children.len(), 2);
         let names: Vec<_> = children
@@ -187,7 +198,9 @@ mod tests {
     fn entityptr_nav_parent() {
         let mut world = World::new();
         let parent = world.spawn(Name("parent")).id();
-        let child = world.spawn((Name("child"), ParentRef(Some(parent)))).id();
+        let child = world
+            .spawn((Name("child"), ParentRef(Some(EntityHandle::new(parent)))))
+            .id();
 
         // SAFETY: world outlives usage
         let world_ref = unsafe { WorldRef::new(&world) };
@@ -203,13 +216,16 @@ mod tests {
         let child1 = world.spawn(Name("child1")).id();
         let child2 = world.spawn(Name("child2")).id();
         let parent = world
-            .spawn((Name("parent"), ChildRefs(vec![child1, child2])))
+            .spawn((
+                Name("parent"),
+                ChildRefs(vec![EntityHandle::new(child1), EntityHandle::new(child2)]),
+            ))
             .id();
 
         // SAFETY: world outlives usage
         let world_ref = unsafe { WorldRef::new(&world) };
         let ptr = world_ref.entity(parent);
-        let children = ptr.nav_many().children::<ChildRefs>();
+        let children: Vec<_> = ptr.nav_many().children::<ChildRefs>().collect();
 
         assert_eq!(children.len(), 2);
         let names: Vec<_> = children
@@ -232,18 +248,16 @@ mod tests {
 
         // Test with BoundEntity
         let bound = EntityHandle::new(parent).bind(&world);
-        let children = bound.nav().children::<ChildRefs>();
-        assert!(children.is_empty());
+        assert_eq!(bound.nav().children::<ChildRefs>().count(), 0);
 
         // Test with EntityPtr
         // SAFETY: world outlives usage
         let world_ref = unsafe { WorldRef::new(&world) };
         let ptr = world_ref.entity(parent);
-        let children = ptr.nav_many().children::<ChildRefs>();
-        assert!(children.is_empty());
+        assert_eq!(ptr.nav_many().children::<ChildRefs>().count(), 0);
     }
 
-    /// Test nav_many().children() returns empty Vec when component is missing.
+    /// Test nav_many().children() returns empty iterator when component is missing.
     #[test]
     fn nav_many_no_children_component() {
         let mut world = World::new();
@@ -251,14 +265,12 @@ mod tests {
 
         // Test with BoundEntity - no ChildRefs component
         let bound = EntityHandle::new(entity).bind(&world);
-        let children = bound.nav().children::<ChildRefs>();
-        assert!(children.is_empty());
+        assert_eq!(bound.nav().children::<ChildRefs>().count(), 0);
 
         // Test with EntityPtr - no ChildRefs component
         // SAFETY: world outlives usage
         let world_ref = unsafe { WorldRef::new(&world) };
         let ptr = world_ref.entity(entity);
-        let children = ptr.nav_many().children::<ChildRefs>();
-        assert!(children.is_empty());
+        assert_eq!(ptr.nav_many().children::<ChildRefs>().count(), 0);
     }
 }

@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-02-16
+
+### Breaking Changes
+- `HasParent::parent_entity()` renamed to `HasParent::parent_handle()`, now returns `Option<EntityHandle>` instead of `Option<Entity>`
+- `HasChildren::children_entities()` renamed to `HasChildren::children_handles()`, now returns `&[EntityHandle]` instead of `&[Entity]`
+- `BoundEntityNav::children()` and `EntityPtrNavMany::children()` now return `impl Iterator` instead of `Vec`
+
+### Added
+- `Display` impl for `EntityHandle`
+- `Clone` + `Copy` derives on `WorldRef`
+- Criterion benchmarks for traversal performance (`benches/traversal.rs`)
+- GitHub Actions CI (test, clippy, fmt, MSRV, Miri)
+
+### Changed
+- Removed redundant `unsafe impl Send/Sync` on `EntityHandle` (auto-derived from `Entity`)
+- Expanded safety documentation on `WorldExt::entity_ptr()` soundness invariant
+- README rewritten: frames `bevy_ecs` as a general ECS library, not game-specific; emphasizes ergonomic `WorldExt` interface as the primary API with documented safety tradeoffs
+- All doc examples now compile-checked (changed from `ignore` to `no_run` or fully runnable)
+
 ## [0.5.0] - 2026-02-11
 
 ### Changed

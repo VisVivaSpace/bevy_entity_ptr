@@ -63,6 +63,12 @@ impl EntityHandle {
     }
 }
 
+impl std::fmt::Display for EntityHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "EntityHandle({})", self.0)
+    }
+}
+
 impl From<Entity> for EntityHandle {
     #[inline]
     fn from(entity: Entity) -> Self {
@@ -77,10 +83,8 @@ impl From<EntityHandle> for Entity {
     }
 }
 
-// SAFETY: EntityHandle is just an Entity ID, which is Send + Sync.
-// Entity in Bevy is Send + Sync, and EntityHandle is #[repr(transparent)] over Entity.
-unsafe impl Send for EntityHandle {}
-unsafe impl Sync for EntityHandle {}
+// Send + Sync auto-derived: EntityHandle is #[repr(transparent)] over Entity,
+// which is Send + Sync.
 
 /// An entity bound to a world reference for fluent, scoped access.
 ///
@@ -231,6 +235,20 @@ mod tests {
 
     #[derive(Component)]
     struct OptionalTarget(Option<EntityHandle>);
+
+    #[test]
+    fn entity_handle_is_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<EntityHandle>();
+    }
+
+    #[test]
+    fn entity_handle_display() {
+        let entity = Entity::from_raw_u32(42).unwrap();
+        let handle = EntityHandle::new(entity);
+        let display = format!("{}", handle);
+        assert!(display.starts_with("EntityHandle("));
+    }
 
     #[test]
     fn handle_roundtrip() {

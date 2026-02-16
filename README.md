@@ -1,152 +1,203 @@
 # bevy_entity_ptr
 
-Ergonomic smart-pointer-like access to Bevy ECS entities with immutable-only semantics.
+[![crates.io](https://img.shields.io/crates/v/bevy_entity_ptr.svg)](https://crates.io/crates/bevy_entity_ptr)
+[![docs.rs](https://docs.rs/bevy_entity_ptr/badge.svg)](https://docs.rs/bevy_entity_ptr)
+[![CI](https://github.com/VisVivaSpace/bevy_entity_ptr/actions/workflows/ci.yml/badge.svg)](https://github.com/VisVivaSpace/bevy_entity_ptr/actions/workflows/ci.yml)
 
-## Overview
+Smart-pointer-like access to entities in [bevy_ecs](https://crates.io/crates/bevy_ecs), a high-performance Entity Component System library. Immutable only, by design.
 
-This crate provides two complementary approaches for accessing entity data in Bevy:
+## Why This Crate?
+
+When working with entity relationships in ECS (parent/child hierarchies, linked structures, graphs), accessing related entities requires repeatedly passing `&World` through every function call. This crate provides two approaches that make entity traversal ergonomic:
 
 | Type | Safety | Ergonomics | Use When |
 |------|--------|------------|----------|
-| `EntityHandle` | ✅ Fully safe | Explicit world param | Store in components |
-| `BoundEntity<'w>` | ✅ Fully safe | Scoped lifetime | Simple access, compiler-checked |
-| `EntityPtr` | ✅ Safe API* | No lifetime params | Tree/graph traversal, recursion |
+| `EntityPtr` | Safe API* | No lifetime params | Graph traversal, recursion, deep chains |
+| `BoundEntity<'w>` | Fully safe | Scoped lifetime | Simple access, compiler-checked lifetimes |
+| `EntityHandle` | Fully safe | Explicit world param | Store in components |
 
-*One internal unsafe hidden by `WorldExt` extension trait
-
-**Recommendation:** Start with `BoundEntity<'w>`. Use `EntityPtr` when lifetime
-annotations become cumbersome for complex traversal.
-
-## Design Principles
-
-- **Immutable only** - No `get_mut` variants (functional programming style)
-- **Safe by default** - `WorldExt` trait hides the internal unsafe, users never write `unsafe` blocks
-- **Graceful stale handling** - Despawned entities return `None`, not undefined behavior
-- **Zero-cost where possible** - `#[repr(transparent)]`, `#[inline]`, `const fn`
+\*One internal `unsafe` hidden by the `WorldExt` extension trait — see [Safety](#safety).
 
 ## Installation
 
-Add to your `Cargo.toml`:
-
 ```toml
 [dependencies]
-bevy_entity_ptr = "0.5"
+bevy_entity_ptr = "0.6"
 ```
 
 ## Quick Start
 
-### Safe Approach: EntityHandle + BoundEntity
-
-Use this when you want fully safe code with explicit world parameters:
-
-```rust
-use bevy_ecs::prelude::*;
-use bevy_entity_ptr::{EntityHandle, BoundEntity};
-
-#[derive(Component)]
-struct Parent(EntityHandle);
-
-#[derive(Component)]
-struct Name(String);
-
-fn find_parent_name(entity: Entity, world: &World) -> Option<String> {
-    let handle = EntityHandle::new(entity);
-    let bound = handle.bind(world);
-
-    // Follow the Parent component to get the parent entity
-    let parent = bound.follow::<Parent, _>(|p| p.0)?;
-
-    // Get the parent's name
-    parent.get::<Name>().map(|n| n.0.clone())
-}
-```
-
-### Ergonomic Approach: WorldExt + EntityPtr
-
-Use this when you want fluent traversal without passing `&World` everywhere.
-The `WorldExt` extension trait hides the internal unsafe, so you never need to write `unsafe` blocks.
+Import the `WorldExt` trait and use `world.entity_ptr()` — no `unsafe` needed:
 
 ```rust
 use bevy_ecs::prelude::*;
 use bevy_entity_ptr::{WorldExt, EntityPtr, EntityHandle};
 
 #[derive(Component)]
-struct Parent(EntityHandle);
+struct Manager(EntityHandle);
 
 #[derive(Component)]
-struct Health(i32);
+struct Label(&'static str);
 
-#[derive(Component)]
-struct TreeChildren(Vec<EntityHandle>);
-
-// Recursive tree traversal - no &World parameter needed!
-fn sum_tree_health(node: EntityPtr) -> i32 {
-    let my_health = node.get::<Health>().map(|h| h.0).unwrap_or(0);
-
-    let children_health: i32 = node
-        .get::<TreeChildren>()
-        .map(|c| {
-            c.0.iter()
-                .map(|h| sum_tree_health(node.follow_handle(*h)))
-                .sum()
-        })
-        .unwrap_or(0);
-
-    my_health + children_health
+// Follow a reference to a related entity
+fn get_manager_label(employee: EntityPtr) -> Option<&'static str> {
+    employee
+        .follow::<Manager, _>(|m| m.0)?
+        .get::<Label>()
+        .map(|l| l.0)
 }
 
-// Find the root by traversing parents
+fn report_system(world: &World, query: Query<Entity, With<Manager>>) {
+    for entity in &query {
+        let ptr = world.entity_ptr(entity);
+        if let Some(label) = get_manager_label(ptr) {
+            println!("Manager: {}", label);
+        }
+    }
+}
+```
+
+### Recursive Traversal
+
+`EntityPtr` carries its world reference internally, so recursive functions don't need a `&World` parameter:
+
+```rust
+use bevy_ecs::prelude::*;
+use bevy_entity_ptr::{WorldExt, EntityPtr, EntityHandle};
+
+#[derive(Component)]
+struct ParentRef(EntityHandle);
+
+#[derive(Component)]
+struct Children(Vec<EntityHandle>);
+
+#[derive(Component)]
+struct Size(f64);
+
+// Find the root of a hierarchy — no &World parameter needed
 fn find_root(node: EntityPtr) -> EntityPtr {
-    match node.follow::<Parent, _>(|p| p.0) {
+    match node.follow::<ParentRef, _>(|p| p.0) {
         Some(parent) => find_root(parent),
         None => node,
     }
 }
 
-fn health_system(world: &World, query: Query<Entity, With<TreeChildren>>) {
-    // No unsafe needed! WorldExt provides ergonomic access
-    for entity in &query {
-        let ptr = world.entity_ptr(entity);
-        let total = sum_tree_health(ptr);
-        println!("Subtree health: {}", total);
-    }
+// Sum a value across an entire subtree
+fn subtree_size(node: EntityPtr) -> f64 {
+    let my_size = node.get::<Size>().map(|s| s.0).unwrap_or(0.0);
+    let children_size: f64 = node
+        .get::<Children>()
+        .map(|c| {
+            c.0.iter()
+                .map(|h| subtree_size(node.follow_handle(*h)))
+                .sum()
+        })
+        .unwrap_or(0.0);
+    my_size + children_size
 }
 ```
 
+### Optional References
+
+Use `follow_opt` when a reference component might be `None`:
+
+```rust
+use bevy_ecs::prelude::*;
+use bevy_entity_ptr::{EntityPtr, EntityHandle};
+
+#[derive(Component)]
+struct Supervisor(Option<EntityHandle>);
+
+#[derive(Component)]
+struct Label(&'static str);
+
+fn get_supervisor_label(employee: EntityPtr) -> Option<&'static str> {
+    employee
+        .follow_opt::<Supervisor, _>(|s| s.0)?
+        .get::<Label>()
+        .map(|l| l.0)
+}
+```
+
+## Safety
+
+The `WorldExt::entity_ptr()` method internally erases the lifetime of `&World` to provide ergonomic traversal. This is an intentional design tradeoff.
+
+**Sound within ECS systems**: When called from a system with `&World` access, the world is guaranteed to outlive the system scope. `EntityPtr` is `!Send`, preventing escape to other threads. All operations are read-only.
+
+**Not sound in arbitrary code**: If the `World` is dropped while `EntityPtr` instances exist, that is undefined behavior. Do not store `EntityPtr` beyond the scope where the `World` reference is valid.
+
+```rust
+// GOOD: EntityPtr used within system scope
+fn my_system(world: &World, query: Query<Entity>) {
+    for entity in &query {
+        let ptr = world.entity_ptr(entity);  // lives within system
+        // ... use ptr ...
+    }  // ptr dropped, system returns
+}
+
+// BAD: Do NOT do this
+fn bad_example() {
+    let mut world = World::new();
+    let entity = world.spawn(()).id();
+    let ptr = world.entity_ptr(entity);
+    drop(world);    // World dropped!
+    // ptr.get::<T>();  // undefined behavior — world no longer exists
+}
+```
+
+**For fully safe code** with no soundness caveats, use `EntityHandle` and `BoundEntity<'w>` — they carry proper lifetime parameters and are checked by the compiler.
+
+## Fully Safe Alternative: EntityHandle + BoundEntity
+
+If you prefer zero `unsafe` with compiler-verified lifetimes:
+
+```rust
+use bevy_ecs::prelude::*;
+use bevy_entity_ptr::{EntityHandle, BoundEntity};
+
+#[derive(Component)]
+struct ParentRef(EntityHandle);
+
+#[derive(Component)]
+struct Label(&'static str);
+
+fn find_parent_label<'w>(entity: Entity, world: &'w World) -> Option<&'w str> {
+    let bound = EntityHandle::new(entity).bind(world);
+    let parent = bound.follow::<ParentRef, _>(|p| p.0)?;
+    parent.get::<Label>().map(|l| l.0)
+}
+```
+
+`EntityHandle` is `Send + Sync`, making it safe to store in components.
+
 ### Mixed Usage
 
-Store handles in components, use smart pointers for traversal:
+Store handles in components, convert to smart pointers for traversal:
 
 ```rust
 use bevy_ecs::prelude::*;
 use bevy_entity_ptr::{EntityHandle, WorldExt, EntityPtr};
 
-// EntityHandle is Send + Sync, safe to store in components
+// EntityHandle is Send + Sync — safe to store in components
 #[derive(Component)]
-struct Inventory {
+struct Related {
     items: Vec<EntityHandle>,
 }
 
 #[derive(Component)]
 struct Weight(f32);
 
-fn total_inventory_weight(player: EntityPtr) -> f32 {
-    player
-        .get::<Inventory>()
-        .map(|inv| {
-            inv.items
+fn total_weight(node: EntityPtr) -> f32 {
+    node.get::<Related>()
+        .map(|rel| {
+            rel.items
                 .iter()
-                .filter_map(|h| player.follow_handle(*h).get::<Weight>())
+                .filter_map(|h| node.follow_handle(*h).get::<Weight>())
                 .map(|w| w.0)
                 .sum()
         })
         .unwrap_or(0.0)
-}
-
-fn inventory_system(world: &World, player_entity: Entity) {
-    let player = world.entity_ptr(player_entity);
-    let weight = total_inventory_weight(player);
-    println!("Total inventory weight: {}", weight);
 }
 ```
 
@@ -156,32 +207,34 @@ Enable the `nav-traits` feature for parent/child navigation helpers:
 
 ```toml
 [dependencies]
-bevy_entity_ptr = { version = "0.5", features = ["nav-traits"] }
+bevy_entity_ptr = { version = "0.6", features = ["nav-traits"] }
 ```
+
+Implement the traits on your components:
 
 ```rust
 use bevy_ecs::prelude::*;
-use bevy_entity_ptr::{WorldExt, HasParent, HasChildren};
+use bevy_entity_ptr::{WorldExt, EntityHandle, HasParent, HasChildren};
 
 #[derive(Component)]
-struct ParentRef(Option<Entity>);
+struct ParentRef(Option<EntityHandle>);
 
 impl HasParent for ParentRef {
-    fn parent_entity(&self) -> Option<Entity> {
+    fn parent_handle(&self) -> Option<EntityHandle> {
         self.0
     }
 }
 
 #[derive(Component)]
-struct ChildRefs(Vec<Entity>);
+struct ChildRefs(Vec<EntityHandle>);
 
 impl HasChildren for ChildRefs {
-    fn children_entities(&self) -> &[Entity] {
+    fn children_handles(&self) -> &[EntityHandle] {
         &self.0
     }
 }
 
-fn navigate_tree(world: &World, entity: Entity) {
+fn navigate(world: &World, entity: Entity) {
     let ptr = world.entity_ptr(entity);
 
     // Navigate to parent
@@ -189,9 +242,9 @@ fn navigate_tree(world: &World, entity: Entity) {
         println!("Has parent: {:?}", parent.entity());
     }
 
-    // Navigate to children
-    let children = ptr.nav_many().children::<ChildRefs>();
-    println!("Has {} children", children.len());
+    // Iterate children (returns an iterator, zero allocation)
+    let child_count = ptr.nav_many().children::<ChildRefs>().count();
+    println!("Has {} children", child_count);
 }
 ```
 
@@ -204,151 +257,64 @@ fn navigate_tree(world: &World, entity: Entity) {
 | `WorldRef` | No | No | System-scoped only |
 | `EntityPtr` | No | No | System-scoped only |
 
+Multiple read-only systems can use `bevy_entity_ptr` concurrently — the scheduler runs them in parallel when all systems only read.
+
 ## Using EntityPtr in Collections
 
-`EntityPtr` implements `Eq` and `Hash`, allowing use in `HashSet` and `HashMap`:
+`EntityPtr` implements `Eq` and `Hash` (comparing entity ID only), enabling use in `HashSet` and `HashMap`:
 
 ```rust
 use std::collections::HashSet;
 use bevy_ecs::prelude::*;
-use bevy_entity_ptr::WorldExt;
+use bevy_entity_ptr::{WorldExt, EntityPtr};
 
-fn find_unique_targets(world: &World, entities: &[Entity]) -> HashSet<Entity> {
+fn collect_unique(world: &World, entities: &[Entity]) -> HashSet<Entity> {
     let mut seen = HashSet::new();
-
     for &entity in entities {
-        let ptr = world.entity_ptr(entity);
-        if seen.insert(ptr) {
-            // First time seeing this entity
-        }
+        seen.insert(world.entity_ptr(entity));
     }
-
-    // Convert back to Entity for storage
     seen.into_iter().map(|ptr| ptr.entity()).collect()
 }
 ```
 
-**Note:** `EntityPtr` comparison uses entity ID only, assuming same-world context (the typical usage pattern).
-
-## Multi-Threaded Usage Example
-
-Multiple read-only systems can use `bevy_entity_ptr` concurrently. Bevy's scheduler runs them in parallel when all systems only read:
-
-```rust
-use bevy_ecs::prelude::*;
-use bevy_entity_ptr::{EntityHandle, EntityPtr, WorldExt};
-
-#[derive(Component)]
-struct Health(i32);
-
-#[derive(Component)]
-struct Armor(i32);
-
-#[derive(Component)]
-struct Children(Vec<EntityHandle>);
-
-#[derive(Component)]
-struct RootMarker;
-
-fn sum_health(node: EntityPtr) -> i32 {
-    let my_health = node.get::<Health>().map(|h| h.0).unwrap_or(0);
-    let children_health: i32 = node
-        .get::<Children>()
-        .map(|c| c.0.iter().map(|h| sum_health(node.follow_handle(*h))).sum())
-        .unwrap_or(0);
-    my_health + children_health
-}
-
-fn sum_armor(node: EntityPtr) -> i32 {
-    let my_armor = node.get::<Armor>().map(|a| a.0).unwrap_or(0);
-    let children_armor: i32 = node
-        .get::<Children>()
-        .map(|c| c.0.iter().map(|h| sum_armor(node.follow_handle(*h))).sum())
-        .unwrap_or(0);
-    my_armor + children_armor
-}
-
-/// System A: Computes total health across hierarchies
-fn compute_health_system(world: &World, query: Query<Entity, With<RootMarker>>) {
-    for entity in &query {
-        let total = sum_health(world.entity_ptr(entity));
-        println!("Total health: {}", total);
-    }
-}
-
-/// System B: Runs concurrently with System A
-fn compute_armor_system(world: &World, query: Query<Entity, With<RootMarker>>) {
-    for entity in &query {
-        let total = sum_armor(world.entity_ptr(entity));
-        println!("Total armor: {}", total);
-    }
-}
-
-// Bevy's scheduler runs both systems in parallel - both only read
-fn setup_app(app: &mut App) {
-    app.add_systems(Update, (compute_health_system, compute_armor_system));
-}
-```
-
-**Why this is safe:**
-
-- `WorldExt::entity_ptr()` hides the internal unsafe - you never write `unsafe` blocks
-- `EntityPtr` is **NOT** `Send`/`Sync` - it cannot escape to other threads
-- Bevy's scheduler detects that both systems only have `&World` access and runs them in parallel
-- All operations through `EntityPtr` are read-only by design
-
-See `examples/concurrent_systems.rs` for a complete runnable example.
-
 ## Stale Reference Handling
 
-Both approaches gracefully handle despawned entities:
+Both approaches gracefully handle despawned entities — returning `None` instead of undefined behavior:
 
 ```rust
 use bevy_ecs::prelude::*;
 use bevy_entity_ptr::EntityHandle;
 
 #[derive(Component)]
-struct Name(&'static str);
+struct Label(&'static str);
 
-fn stale_handling_example(world: &mut World) {
-    let entity = world.spawn(Name("temporary")).id();
+fn stale_handling(world: &mut World) {
+    let entity = world.spawn(Label("temporary")).id();
     let handle = EntityHandle::new(entity);
 
-    // Works fine
     assert!(handle.is_alive(world));
-    assert_eq!(handle.get::<Name>(world).unwrap().0, "temporary");
+    assert_eq!(handle.get::<Label>(world).unwrap().0, "temporary");
 
-    // Despawn the entity
     world.despawn(entity);
 
-    // Gracefully returns None - no undefined behavior!
+    // Gracefully returns None — no undefined behavior
     assert!(!handle.is_alive(world));
-    assert!(handle.get::<Name>(world).is_none());
+    assert!(handle.get::<Label>(world).is_none());
 }
 ```
 
-## Safety
-
-**For most users:** The `WorldExt` extension trait (`world.entity_ptr(entity)`) hides all unsafe code. You never need to write `unsafe` blocks.
-
-**For advanced users:** If you need direct access to `WorldRef::new()`, the caller must ensure:
-
-1. The `World` outlives all `EntityPtr` instances created from the `WorldRef`
-2. The `World` is NOT mutated while any `EntityPtr` exists
-
-In Bevy systems, this is naturally satisfied: systems with `&World` access cannot mutate.
-
 ## What This Crate Does NOT Support (By Design)
 
-- **Mutable access** - Use Bevy's native APIs for mutations
-- **Despawning** - Use `world.despawn()` directly
-- **Component insertion/removal** - Use Bevy's native APIs
-- **Cross-frame storage of `EntityPtr`** - Use `EntityHandle` or raw `Entity` for storage
+- **Mutable access** — Use the ECS's native APIs for mutations
+- **Despawning** — Use `world.despawn()` directly
+- **Component insertion/removal** — Use the ECS's native APIs
+- **Cross-scope storage of `EntityPtr`** — Use `EntityHandle` or raw `Entity` for storage
 
 ## Bevy Compatibility
 
 | `bevy_entity_ptr` | Bevy |
 |--------------------|------|
+| 0.6                | 0.18 |
 | 0.5                | 0.18 |
 | 0.4                | 0.17 |
 | 0.3                | 0.16 |

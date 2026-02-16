@@ -30,6 +30,7 @@ use crate::handle::EntityHandle;
 ///
 /// # Thread Safety
 /// NOT `Send`, NOT `Sync` - must stay on the creating thread within a single system.
+#[derive(Clone, Copy)]
 pub struct WorldRef {
     world: &'static World,
 }
@@ -208,7 +209,16 @@ impl EntityPtr {
     /// This enables cleaner recursive patterns without needing access to `WorldRef`.
     ///
     /// # Example
-    /// ```ignore
+    /// ```
+    /// use bevy_ecs::prelude::*;
+    /// use bevy_entity_ptr::{EntityHandle, EntityPtr};
+    ///
+    /// #[derive(Component)]
+    /// struct TreeChildren(Vec<EntityHandle>);
+    ///
+    /// #[derive(Component)]
+    /// struct Value(i32);
+    ///
     /// fn sum_tree(ptr: EntityPtr) -> i32 {
     ///     let children_sum: i32 = ptr
     ///         .get::<TreeChildren>()
@@ -333,6 +343,18 @@ mod tests {
 
     #[derive(Component)]
     struct OptionalTarget(Option<EntityHandle>);
+
+    #[test]
+    fn worldref_is_copy() {
+        let mut world = World::new();
+        let _entity = world.spawn(Name("test")).id();
+
+        // SAFETY: world outlives the WorldRef usage in this test
+        let w = unsafe { WorldRef::new(&world) };
+        let w2 = w; // Copy
+        let w3 = w; // Still usable after copy
+        assert_eq!(std::mem::size_of_val(&w2), std::mem::size_of_val(&w3));
+    }
 
     #[test]
     fn worldref_entity_access() {

@@ -102,6 +102,25 @@
 //! 2. **Single unsafe boundary** - Only `WorldRef::new()` is unsafe
 //! 3. **Graceful stale handling** - Despawned entities return `None`, not UB
 //! 4. **Zero-cost where possible** - `#[repr(transparent)]`, `#[inline]`, `const fn`
+//!
+//! ## Safety
+//!
+//! The [`WorldExt::entity_ptr()`] method internally uses `unsafe` to erase the
+//! lifetime of the `&World` reference, enabling ergonomic traversal without
+//! threading a lifetime parameter through every function call.
+//!
+//! **This is sound within Bevy systems** because:
+//! - `&World` is guaranteed to outlive the system scope
+//! - `EntityPtr` is `!Send`, so it cannot escape to other threads
+//! - The World cannot be mutated while a system holds `&World`
+//!
+//! **This is NOT sound in arbitrary code** where a `World` could be dropped
+//! while `EntityPtr` instances still exist. If you use `WorldExt::entity_ptr()`
+//! outside of a Bevy system, you must ensure the `World` outlives all
+//! `EntityPtr` instances created from it.
+//!
+//! For fully safe code with no soundness caveats, use [`EntityHandle`] and
+//! [`BoundEntity`] instead — they carry proper lifetime parameters.
 
 mod handle;
 mod ptr;
@@ -154,9 +173,17 @@ pub trait WorldExt {
     /// complex entity graph traversal. The `EntityPtr` is `!Send`,
     /// preventing escape to other threads.
     ///
-    /// # Safety Guarantee
-    /// Within a Bevy system, `&World` outlives the system scope.
-    /// Since `EntityPtr` is `!Send`, it cannot escape the system.
+    /// # Safety Invariant
+    ///
+    /// This method is safe to call **within Bevy systems** where `&World`
+    /// is guaranteed to outlive the system scope. Using this method outside
+    /// of a Bevy system (e.g., in a `main()` function with a locally-owned
+    /// `World`) requires that the caller ensure the `World` outlives all
+    /// `EntityPtr` instances created from it. Dropping the `World` while
+    /// `EntityPtr` instances exist is undefined behavior.
+    ///
+    /// For fully safe code without this invariant, use
+    /// [`EntityHandle::bind()`] and [`BoundEntity`] instead.
     fn entity_ptr(&self, entity: Entity) -> EntityPtr;
 }
 
@@ -889,26 +916,25 @@ mod integration_tests {
 mod nav_integration_tests {
     use super::*;
     use bevy_ecs::component::Component;
-    use bevy_ecs::entity::Entity;
     use bevy_ecs::world::World;
 
     #[derive(Component)]
     struct Name(&'static str);
 
     #[derive(Component)]
-    struct ParentRef(Option<Entity>);
+    struct ParentRef(Option<EntityHandle>);
 
     impl HasParent for ParentRef {
-        fn parent_entity(&self) -> Option<Entity> {
+        fn parent_handle(&self) -> Option<EntityHandle> {
             self.0
         }
     }
 
     #[derive(Component)]
-    struct ChildRefs(Vec<Entity>);
+    struct ChildRefs(Vec<EntityHandle>);
 
     impl HasChildren for ChildRefs {
-        fn children_entities(&self) -> &[Entity] {
+        fn children_handles(&self) -> &[EntityHandle] {
             &self.0
         }
     }
@@ -920,9 +946,14 @@ mod nav_integration_tests {
 
         let grandparent = world.spawn(Name("grandparent")).id();
         let parent = world
-            .spawn((Name("parent"), ParentRef(Some(grandparent))))
+            .spawn((
+                Name("parent"),
+                ParentRef(Some(EntityHandle::new(grandparent))),
+            ))
             .id();
-        let child = world.spawn((Name("child"), ParentRef(Some(parent)))).id();
+        let child = world
+            .spawn((Name("child"), ParentRef(Some(EntityHandle::new(parent)))))
+            .id();
 
         let bound = EntityHandle::new(child).bind(&world);
 
@@ -943,14 +974,21 @@ mod nav_integration_tests {
         let child2 = world.spawn(Name("child2")).id();
         let child3 = world.spawn(Name("child3")).id();
         let parent = world
-            .spawn((Name("parent"), ChildRefs(vec![child1, child2, child3])))
+            .spawn((
+                Name("parent"),
+                ChildRefs(vec![
+                    EntityHandle::new(child1),
+                    EntityHandle::new(child2),
+                    EntityHandle::new(child3),
+                ]),
+            ))
             .id();
 
         // SAFETY: world outlives usage
         let w = unsafe { WorldRef::new(&world) };
         let parent_ptr = w.entity(parent);
 
-        let children = parent_ptr.nav_many().children::<ChildRefs>();
+        let children: Vec<_> = parent_ptr.nav_many().children::<ChildRefs>().collect();
         assert_eq!(children.len(), 3);
 
         let names: Vec<_> = children
