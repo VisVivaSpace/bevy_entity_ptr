@@ -101,9 +101,10 @@
 //!
 //! ## Safety
 //!
-//! The [`WorldExt::entity_ptr()`] method internally uses `unsafe` to erase the
-//! lifetime of the `&World` reference, enabling ergonomic traversal without
-//! threading a lifetime parameter through every function call.
+//! The [`WorldExt::entity_ptr()`] method internally transmutes `&World` to
+//! `&'static World` so that [`EntityPtr`] can carry the world reference without
+//! a lifetime parameter. Because the `'static` lifetime is fabricated, the
+//! compiler cannot catch use-after-free on the world reference.
 //!
 //! **This is sound within Bevy systems** because:
 //! - `&World` is guaranteed to outlive the system scope
@@ -111,7 +112,8 @@
 //! - The World cannot be mutated while a system holds `&World`
 //!
 //! **This is NOT sound in arbitrary code** where a `World` could be dropped
-//! while `EntityPtr` instances still exist. If you use `WorldExt::entity_ptr()`
+//! while `EntityPtr` instances still exist — the fabricated `'static` lifetime
+//! means the compiler won't prevent this. If you use `WorldExt::entity_ptr()`
 //! outside of a Bevy system, you must ensure the `World` outlives all
 //! `EntityPtr` instances created from it.
 //!

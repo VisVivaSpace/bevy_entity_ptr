@@ -120,11 +120,11 @@ fn get_supervisor_label(employee: EntityPtr) -> Option<&'static str> {
 
 ## Safety
 
-The `WorldExt::entity_ptr()` method internally erases the lifetime of `&World` to provide ergonomic traversal. This is an intentional design tradeoff.
+The `WorldExt::entity_ptr()` method internally transmutes `&World` to `&'static World` so that `EntityPtr` can carry the world reference without a lifetime parameter. This is what makes the ergonomic API possible — but because the `'static` lifetime is fabricated, the compiler **cannot** catch use-after-free on the world reference.
 
 **Sound within ECS systems**: When called from a system with `&World` access, the world is guaranteed to outlive the system scope. `EntityPtr` is `!Send`, preventing escape to other threads. All operations are read-only.
 
-**Not sound in arbitrary code**: If the `World` is dropped while `EntityPtr` instances exist, that is undefined behavior. Do not store `EntityPtr` beyond the scope where the `World` reference is valid.
+**Not sound in arbitrary code**: Because `EntityPtr` holds a `'static` reference internally, the compiler won't prevent you from using it after the `World` is dropped. This would be undefined behavior.
 
 ```rust
 // GOOD: EntityPtr used within a function that borrows &World
@@ -135,13 +135,13 @@ fn process_entities(world: &World, entities: &[Entity]) {
     }  // ptr dropped before &World borrow ends
 }
 
-// BAD: Do NOT do this
+// BAD: Do NOT do this — the 'static lifetime means the compiler won't stop you
 fn bad_example() {
     let mut world = World::new();
     let entity = world.spawn(()).id();
     let ptr = world.entity_ptr(entity);
-    drop(world);    // World dropped!
-    // ptr.get::<T>();  // undefined behavior — world no longer exists
+    drop(world);    // World dropped — but ptr still holds a 'static reference!
+    // ptr.get::<T>();  // undefined behavior — dangling 'static reference
 }
 ```
 
