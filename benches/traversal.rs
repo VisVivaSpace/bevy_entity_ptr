@@ -1,7 +1,7 @@
 use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::world::World;
-use bevy_entity_ptr::{EntityHandle, EntityPtr, WorldExt};
+use bevy_entity_ptr::{BoundEntity, EntityHandle, EntityPtr, WorldExt};
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
 #[derive(Component)]
@@ -96,6 +96,19 @@ fn sum_tree_entityptr(ptr: EntityPtr) -> i32 {
     mine + children_sum
 }
 
+fn sum_tree_bound(bound: BoundEntity) -> i32 {
+    let mine = bound.get::<Value>().map(|v| v.0).unwrap_or(0);
+    let children_sum: i32 = bound
+        .get::<Children>()
+        .map(|c| {
+            c.0.iter()
+                .map(|h| sum_tree_bound(h.bind(bound.world())))
+                .sum()
+        })
+        .unwrap_or(0);
+    mine + children_sum
+}
+
 fn sum_tree_raw(world: &World, entity: Entity) -> i32 {
     let mine = world.get::<Value>(entity).map(|v| v.0).unwrap_or(0);
     let children_sum: i32 = world
@@ -144,6 +157,10 @@ fn bench_tree_sum(c: &mut Criterion) {
             format!("entityptr_depth_{}_nodes_{}", depth, node_count),
             |b| b.iter(|| sum_tree_entityptr(world.entity_ptr(black_box(root)))),
         );
+
+        group.bench_function(format!("bound_depth_{}_nodes_{}", depth, node_count), |b| {
+            b.iter(|| sum_tree_bound(world.bind_entity(black_box(root))))
+        });
 
         group.bench_function(format!("raw_depth_{}_nodes_{}", depth, node_count), |b| {
             b.iter(|| sum_tree_raw(&world, black_box(root)))

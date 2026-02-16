@@ -15,13 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 - `Display` impl for `EntityHandle`
 - `Clone` + `Copy` derives on `WorldRef`
+- `PartialEq`, `Eq`, and `Hash` implementations for `BoundEntity` (entity-only comparison, matching `EntityPtr`)
 - Criterion benchmarks for traversal performance (`benches/traversal.rs`)
-- GitHub Actions CI (test, clippy, fmt, MSRV, Miri)
+- GitHub Actions CI (test, clippy, fmt, MSRV, Miri) with cargo build caching
 
 ### Changed
 - Removed redundant `unsafe impl Send/Sync` on `EntityHandle` (auto-derived from `Entity`)
 - Expanded safety documentation on `WorldExt::entity_ptr()` soundness invariant
 - README rewritten: frames `bevy_ecs` as a general ECS library, not game-specific; emphasizes ergonomic `WorldExt` interface as the primary API with documented safety tradeoffs
+- Simplified doc examples: removed misleading system signatures, focused on API demonstration
 - All doc examples now compile-checked (changed from `ignore` to `no_run` or fully runnable)
 
 ## [0.5.0] - 2026-02-11

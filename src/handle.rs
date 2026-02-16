@@ -192,6 +192,28 @@ impl<'w> BoundEntity<'w> {
     }
 }
 
+impl PartialEq for BoundEntity<'_> {
+    /// Compares by entity ID only.
+    ///
+    /// This assumes both `BoundEntity`s reference the same world, which is
+    /// the typical usage pattern within a single system.
+    fn eq(&self, other: &Self) -> bool {
+        self.entity == other.entity
+    }
+}
+
+impl Eq for BoundEntity<'_> {}
+
+impl std::hash::Hash for BoundEntity<'_> {
+    /// Hashes the entity ID only.
+    ///
+    /// This enables use in `HashSet` and as `HashMap` keys within
+    /// a single-world context (the typical usage pattern).
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.entity.hash(state);
+    }
+}
+
 impl std::fmt::Debug for BoundEntity<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BoundEntity")
@@ -360,6 +382,25 @@ mod tests {
     fn memory_layout() {
         assert_eq!(std::mem::size_of::<EntityHandle>(), 8);
         assert_eq!(std::mem::size_of::<BoundEntity<'_>>(), 16);
+    }
+
+    #[test]
+    fn bound_entity_eq_hash() {
+        let mut world = World::new();
+        let e1 = world.spawn(Name("a")).id();
+        let e2 = world.spawn(Name("b")).id();
+
+        let b1 = EntityHandle::new(e1).bind(&world);
+        let b1_copy = EntityHandle::new(e1).bind(&world);
+        let b2 = EntityHandle::new(e2).bind(&world);
+
+        assert_eq!(b1, b1_copy);
+        assert_ne!(b1, b2);
+
+        let mut set = std::collections::HashSet::new();
+        set.insert(b1);
+        assert!(set.contains(&b1_copy));
+        assert!(!set.contains(&b2));
     }
 
     #[test]

@@ -41,15 +41,11 @@
 //! #[derive(Component)]
 //! struct Name(&'static str);
 //!
-//! fn my_system(world: &World, query: &Query<&Target>) {
-//!     // EntityHandle stores compactly in components
-//!     for target in query.iter() {
-//!         // Bind to world for fluent access
-//!         let bound = target.0.bind(world);
-//!         if let Some(name) = bound.get::<Name>() {
-//!             println!("Target: {}", name.0);
-//!         }
-//!     }
+//! // BoundEntity provides fluent access with explicit world parameter
+//! fn get_target_name<'w>(entity: Entity, world: &'w World) -> Option<&'w str> {
+//!     let bound = EntityHandle::new(entity).bind(world);
+//!     let target = bound.follow::<Target, _>(|t| t.0)?;
+//!     target.get::<Name>().map(|n| n.0)
 //! }
 //! ```
 //!
@@ -60,7 +56,7 @@
 //!
 //! ```
 //! use bevy_ecs::prelude::*;
-//! use bevy_entity_ptr::{WorldExt, EntityHandle};
+//! use bevy_entity_ptr::{WorldExt, EntityPtr, EntityHandle};
 //!
 //! #[derive(Component)]
 //! struct Target(EntityHandle);
@@ -68,17 +64,17 @@
 //! #[derive(Component)]
 //! struct Name(&'static str);
 //!
-//! fn traverse_system(world: &World, query: Query<Entity, With<Target>>) {
-//!     // No unsafe needed! WorldExt provides ergonomic access
-//!     for entity in &query {
-//!         let ptr = world.entity_ptr(entity);
+//! // EntityPtr carries its world reference — no &World threading needed
+//! fn get_target_name(ptr: EntityPtr) -> Option<&'static str> {
+//!     let target = ptr.follow::<Target, _>(|t| t.0)?;
+//!     target.get::<Name>().map(|n| n.0)
+//! }
 //!
-//!         // Follow references fluently
-//!         if let Some(target) = ptr.follow::<Target, _>(|t| t.0) {
-//!             if let Some(name) = target.get::<Name>() {
-//!                 println!("Target: {}", name.0);
-//!             }
-//!         }
+//! // Usage: world.entity_ptr(entity) creates an EntityPtr
+//! fn example(world: &World, entity: Entity) {
+//!     let ptr = world.entity_ptr(entity);
+//!     if let Some(name) = get_target_name(ptr) {
+//!         println!("Target: {}", name);
 //!     }
 //! }
 //! ```
@@ -370,11 +366,7 @@ mod integration_tests {
         let mine = ptr.get::<Value>().map(|v| v.0).unwrap_or(0);
         let children_sum: i32 = ptr
             .get::<TreeChildren>()
-            .map(|c| {
-                c.0.iter()
-                    .map(|h| sum_tree(EntityPtr::new(h.entity(), ptr.world())))
-                    .sum()
-            })
+            .map(|c| c.0.iter().map(|h| sum_tree(ptr.follow_handle(*h))).sum())
             .unwrap_or(0);
         mine + children_sum
     }
@@ -445,7 +437,7 @@ mod integration_tests {
         ptr.get::<TreeChildren>()
             .map(|c| {
                 c.0.iter()
-                    .map(|h| tree_depth(EntityPtr::new(h.entity(), ptr.world())))
+                    .map(|h| tree_depth(ptr.follow_handle(*h)))
                     .max()
                     .unwrap_or(0)
                     + 1
@@ -609,12 +601,12 @@ mod integration_tests {
             .0
             .iter()
             .flat_map(|h| {
-                let child_ptr = EntityPtr::new(h.entity(), root_ptr.world());
+                let child_ptr = root_ptr.follow_handle(*h);
                 child_ptr
                     .get::<TreeChildren>()
                     .map(|tc| {
                         tc.0.iter()
-                            .map(|gh| EntityPtr::new(gh.entity(), root_ptr.world()))
+                            .map(|gh| child_ptr.follow_handle(*gh))
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_default()
@@ -782,7 +774,7 @@ mod integration_tests {
             .map(|tc| {
                 tc.0.iter()
                     .filter_map(|h| {
-                        let child = EntityPtr::new(h.entity(), ptr.world());
+                        let child = ptr.follow_handle(*h);
                         child.get::<Health>().map(|h| h.0)
                     })
                     .collect()

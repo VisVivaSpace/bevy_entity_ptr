@@ -39,7 +39,7 @@ struct Manager(EntityHandle);
 #[derive(Component)]
 struct Label(&'static str);
 
-// Follow a reference to a related entity
+// Follow a reference to a related entity — no &World parameter needed
 fn get_manager_label(employee: EntityPtr) -> Option<&'static str> {
     employee
         .follow::<Manager, _>(|m| m.0)?
@@ -47,12 +47,11 @@ fn get_manager_label(employee: EntityPtr) -> Option<&'static str> {
         .map(|l| l.0)
 }
 
-fn report_system(world: &World, query: Query<Entity, With<Manager>>) {
-    for entity in &query {
-        let ptr = world.entity_ptr(entity);
-        if let Some(label) = get_manager_label(ptr) {
-            println!("Manager: {}", label);
-        }
+// Usage: world.entity_ptr() creates an EntityPtr from any &World context
+fn example(world: &World, entity: Entity) {
+    let ptr = world.entity_ptr(entity);
+    if let Some(label) = get_manager_label(ptr) {
+        println!("Manager: {}", label);
     }
 }
 ```
@@ -128,12 +127,12 @@ The `WorldExt::entity_ptr()` method internally erases the lifetime of `&World` t
 **Not sound in arbitrary code**: If the `World` is dropped while `EntityPtr` instances exist, that is undefined behavior. Do not store `EntityPtr` beyond the scope where the `World` reference is valid.
 
 ```rust
-// GOOD: EntityPtr used within system scope
-fn my_system(world: &World, query: Query<Entity>) {
-    for entity in &query {
-        let ptr = world.entity_ptr(entity);  // lives within system
+// GOOD: EntityPtr used within a function that borrows &World
+fn process_entities(world: &World, entities: &[Entity]) {
+    for &entity in entities {
+        let ptr = world.entity_ptr(entity);
         // ... use ptr ...
-    }  // ptr dropped, system returns
+    }  // ptr dropped before &World borrow ends
 }
 
 // BAD: Do NOT do this

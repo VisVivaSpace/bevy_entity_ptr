@@ -15,7 +15,7 @@ categories = ["game-development", "data-structures"]
 
 # Exclude internal development files from published package
 exclude = [
-    "bevy_entity_ptr_plan.md",
+    "notes/",
     "CLAUDE.md",
     ".claude/",
     ".github/",
