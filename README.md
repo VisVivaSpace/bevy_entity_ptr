@@ -4,11 +4,35 @@
 [![docs.rs](https://docs.rs/bevy_entity_ptr/badge.svg)](https://docs.rs/bevy_entity_ptr)
 [![CI](https://github.com/VisVivaSpace/bevy_entity_ptr/actions/workflows/ci.yml/badge.svg)](https://github.com/VisVivaSpace/bevy_entity_ptr/actions/workflows/ci.yml)
 
-Smart-pointer-like access to entities in [bevy_ecs](https://crates.io/crates/bevy_ecs), a high-performance Entity Component System library. Immutable only, by design.
+Ergonomic entity traversal for [bevy_ecs](https://crates.io/crates/bevy_ecs) — follow entity relationships without threading `&World` through every function. Read-only by design.
 
 ## Why This Crate?
 
-When working with entity relationships in ECS (parent/child hierarchies, linked structures, graphs), accessing related entities requires repeatedly passing `&World` through every function call. This crate provides two approaches that make entity traversal ergonomic:
+In Bevy's ECS, entity relationships are just IDs — all data lives in the `World`. Following a chain of relationships means passing `&World` through every function:
+
+```rust
+// Without bevy_entity_ptr: &World threaded through every call
+fn find_root(world: &World, entity: Entity) -> Entity {
+    match world.get::<ParentRef>(entity) {
+        Some(p) => find_root(world, p.0),
+        None => entity,
+    }
+}
+```
+
+For a single hop this is fine, but for recursive traversals, deep chains, and graph algorithms it gets tedious. `bevy_entity_ptr` provides types that carry the world reference internally:
+
+```rust
+// With bevy_entity_ptr: no &World parameter needed
+fn find_root(node: EntityPtr) -> EntityPtr {
+    match node.follow::<ParentRef, _>(|p| p.0) {
+        Some(parent) => find_root(parent),
+        None => node,
+    }
+}
+```
+
+Three types for different use cases:
 
 | Type | Safety | Ergonomics | Use When |
 |------|--------|------------|----------|
@@ -58,28 +82,17 @@ fn example(world: &World, entity: Entity) {
 
 ### Recursive Traversal
 
-`EntityPtr` carries its world reference internally, so recursive functions don't need a `&World` parameter:
+`EntityPtr` carries its world reference internally, making recursive tree operations natural. Use `follow_handle` to convert child handles into pointers:
 
 ```rust
 use bevy_ecs::prelude::*;
 use bevy_entity_ptr::{WorldExt, EntityPtr, EntityHandle};
 
 #[derive(Component)]
-struct ParentRef(EntityHandle);
-
-#[derive(Component)]
 struct Children(Vec<EntityHandle>);
 
 #[derive(Component)]
 struct Size(f64);
-
-// Find the root of a hierarchy — no &World parameter needed
-fn find_root(node: EntityPtr) -> EntityPtr {
-    match node.follow::<ParentRef, _>(|p| p.0) {
-        Some(parent) => find_root(parent),
-        None => node,
-    }
-}
 
 // Sum a value across an entire subtree
 fn subtree_size(node: EntityPtr) -> f64 {
@@ -98,7 +111,7 @@ fn subtree_size(node: EntityPtr) -> f64 {
 
 ### Optional References
 
-Use `follow_opt` when a reference component might be `None`:
+Use `follow_opt` when a component contains an `Option<EntityHandle>`:
 
 ```rust
 use bevy_ecs::prelude::*;
